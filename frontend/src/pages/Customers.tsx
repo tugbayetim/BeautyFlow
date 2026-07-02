@@ -7,6 +7,8 @@ interface Customer {
   name: string;
   phone: string | null;
   last_visit: string | null;
+  last_service_name: string | null;
+  last_service_price: number | string | null;
   total_spent: number | string | null;
   salon_id: number;
   created_at: string;
@@ -117,7 +119,7 @@ export default function Customers() {
               <tr style={{ backgroundColor: '#f7fafc' }}>
                 <th style={thStyle}>Ad Soyad</th>
                 <th style={thStyle}>Telefon</th>
-                <th style={thStyle}>Son Ziyaret</th>
+                <th style={thStyle}>Son İşlem</th>
                 <th style={thStyle}>Toplam Harcama</th>
                 <th style={thStyle}>Kayıt Tarihi</th>
               </tr>
@@ -136,11 +138,11 @@ export default function Customers() {
                       <span style={{ fontWeight: '500', color: '#2d3748' }}>👤 {customer.name}</span>
                     </td>
                     <td style={{ ...tdStyle, color: '#718096' }}>{customer.phone || '—'}</td>
-                    <td style={{ ...tdStyle, color: '#718096' }}>{formatDate(customer.last_visit)}</td>
+                    <td style={{ ...tdStyle, color: '#718096' }}>{customer.last_service_name || '—'}</td>
                     <td style={{ ...tdStyle, fontWeight: 'bold', color: '#2d3748' }}>
-                      {customer.total_spent != null
-                        ? `${Number(customer.total_spent).toLocaleString('tr-TR')} TL`
-                        : '0 TL'}
+                      {customer.last_service_price != null
+                        ? `${Number(customer.last_service_price).toLocaleString('tr-TR')} TL`
+                        : '—'}
                     </td>
                     <td style={{ ...tdStyle, color: '#718096' }}>{formatDate(customer.created_at)}</td>
                   </tr>

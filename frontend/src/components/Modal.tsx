@@ -5,9 +5,10 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  maxWidth?: number;
 }
 
-export default function Modal({ open, onClose, title, children }: ModalProps) {
+export default function Modal({ open, onClose, title, children, maxWidth = 480 }: ModalProps) {
   if (!open) return null;
 
   return (
@@ -29,7 +30,10 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
           backgroundColor: 'white',
           borderRadius: '12px',
           width: '100%',
-          maxWidth: '480px',
+          maxWidth: `${maxWidth}px`,
+          maxHeight: '90vh',
+          display: 'flex',
+          flexDirection: 'column',
           boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
         }}
         onClick={(e) => e.stopPropagation()}
@@ -41,6 +45,7 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
             alignItems: 'center',
             padding: '20px 24px',
             borderBottom: '1px solid #edf2f7',
+            flexShrink: 0,
           }}
         >
           <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#1a202c' }}>{title}</h2>
@@ -59,7 +64,7 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
             ×
           </button>
         </div>
-        <div style={{ padding: '24px' }}>{children}</div>
+        <div style={{ padding: '24px', overflowY: 'auto' }}>{children}</div>
       </div>
     </div>
   );

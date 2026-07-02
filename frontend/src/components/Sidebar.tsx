@@ -20,7 +20,7 @@ export default function Sidebar() {
       borderRight: '1px solid #edf2f7',
     }}>
       {/* Logo Alanı - Tasarımdaki pembe tonu */}
-      <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#e52d6e', marginBottom: '40px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#e52d6e', marginBottom: '40px', display: 'flex', alignItems: 'center', gap: '10px', fontStyle: 'italic' }}>
         🌸 BeautyFlow
       </div>
 

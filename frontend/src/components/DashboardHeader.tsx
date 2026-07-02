@@ -1,21 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
-import { SALON_NAME, SALON_OWNER } from '../config';
+import { API_BASE, SALON_NAME } from '../config';
+
+interface User {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  profile_image_url?: string;
+}
 
 export interface DashboardNotification {
   id: number;
   customer_name: string;
   service_name: string;
   start_time: string;
+  status: string;
   created_at: string;
 }
 
 interface DashboardHeaderProps {
   notifications: DashboardNotification[];
   unreadCount: number;
-  onMarkAllRead: () => void;
+  onConfirm: (id: number) => void;
+  isNewNotification: boolean;
+  onProfileClick: () => void;
+  user: User | null;
 }
 
-export default function DashboardHeader({ notifications, unreadCount, onMarkAllRead }: DashboardHeaderProps) {
+export default function DashboardHeader({ notifications, unreadCount, onConfirm, isNewNotification, onProfileClick, user }: DashboardHeaderProps) {
   const [bellOpen, setBellOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
 
@@ -30,21 +42,27 @@ export default function DashboardHeader({ notifications, unreadCount, onMarkAllR
   }, []);
 
   const toggleBell = () => {
-    const next = !bellOpen;
-    setBellOpen(next);
-    if (next) onMarkAllRead();
+    setBellOpen((prev) => !prev);
   };
 
-  const formatTime = (dateStr: string) =>
-    new Date(dateStr).toLocaleString('tr-TR', {
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  const formatTime = (dateStr: string) => new Date(dateStr).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '16px', marginBottom: '32px' }}>
+      <style>
+        {`
+          @keyframes bell-ring {
+            0%, 100% { transform: rotate(0); }
+            10%, 30%, 50%, 70%, 90% { transform: rotate(18deg); }
+            20%, 40%, 60%, 80% { transform: rotate(-18deg); }
+          }
+          .bell-animation {
+            animation: bell-ring 0.8s ease-in-out;
+            transform-origin: top center;
+          }
+        `}
+      </style>
+
       <div ref={bellRef} style={{ position: 'relative' }}>
         <button
           type="button"
@@ -63,7 +81,7 @@ export default function DashboardHeader({ notifications, unreadCount, onMarkAllR
             position: 'relative',
           }}
         >
-          🔔
+          <span className={isNewNotification ? 'bell-animation' : ''}>🔔</span>
           {unreadCount > 0 && (
             <span
               style={{
@@ -125,15 +143,43 @@ export default function DashboardHeader({ notifications, unreadCount, onMarkAllR
                     key={n.id}
                     style={{
                       padding: '12px 16px',
-                      borderBottom: '1px solid #f7fafc',
+                      borderBottom: '1px solid #f0f3f7',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      backgroundColor: n.status === 'pending' ? '#fce7f3' : 'transparent',
                     }}
                   >
-                    <div style={{ fontWeight: '600', color: '#2d3748', fontSize: '14px' }}>
-                      {n.customer_name}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: '600', color: '#2d3748', fontSize: '14px' }}>
+                        {n.customer_name}
+                      </div>
+                      <div style={{ fontSize: '13px', color: '#718096', marginTop: '2px' }}>
+                        {n.service_name} · {formatTime(n.start_time)}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '13px', color: '#718096', marginTop: '2px' }}>
-                      {n.service_name} · {formatTime(n.start_time)}
-                    </div>
+                    {n.status === 'pending' && (
+                      <button
+                        type="button"
+                        onClick={() => onConfirm(n.id)}
+                        title="Randevuyu Onayla"
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                          border: 'none',
+                          backgroundColor: '#d1fae5',
+                          color: '#065f46',
+                          cursor: 'pointer',
+                          fontSize: '16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        ✓
+                      </button>
+                    )}
                   </div>
                 ))
               )}
@@ -142,7 +188,9 @@ export default function DashboardHeader({ notifications, unreadCount, onMarkAllR
         )}
       </div>
 
-      <div
+      <button
+        type="button"
+        onClick={onProfileClick}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -151,6 +199,7 @@ export default function DashboardHeader({ notifications, unreadCount, onMarkAllR
           border: '1px solid #edf2f7',
           borderRadius: '12px',
           padding: '8px 16px 8px 8px',
+          cursor: 'pointer',
         }}
       >
         <div
@@ -167,13 +216,23 @@ export default function DashboardHeader({ notifications, unreadCount, onMarkAllR
             fontSize: '16px',
           }}
         >
-          {SALON_OWNER.charAt(0)}
+          {user?.profile_image_url ? (
+            <img
+              src={`${API_BASE}${user.profile_image_url}`}
+              alt={user.name}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '10px' }}
+            />
+          ) : (
+            user?.name.charAt(0) || '?'
+          )}
         </div>
         <div>
-          <div style={{ fontWeight: 'bold', color: '#1a202c', fontSize: '14px' }}>{SALON_OWNER}</div>
-          <div style={{ fontSize: '12px', color: '#718096' }}>Salon Sahibi · {SALON_NAME}</div>
+          <div style={{ fontWeight: 'bold', color: '#1a202c', fontSize: '14px' }}>{user?.name || 'Kullanıcı'}</div>
+          <div style={{ fontSize: '12px', color: '#718096', textTransform: 'capitalize' }}>
+            {user?.role === 'admin' ? 'Yönetici' : user?.role || 'Kullanıcı'} · {SALON_NAME}
+          </div>
         </div>
-      </div>
+      </button>
     </div>
   );
 }

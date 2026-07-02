@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import Modal from '../components/Modal';
 import { API_BASE, SALON_ID } from '../config';
 
@@ -25,6 +25,8 @@ interface ServiceOption {
   name: string;
   duration_minutes: number;
   price: number | string;
+  is_active: boolean;
+  online_booking_enabled: boolean;
 }
 
 const primaryBtn = {
@@ -57,6 +59,7 @@ export default function Appointments() {
   const [customerId, setCustomerId] = useState('');
   const [serviceId, setServiceId] = useState('');
   const [startTime, setStartTime] = useState('');
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
 
   const fetchAppointments = useCallback(() => {
     setLoading(true);
@@ -70,7 +73,7 @@ export default function Appointments() {
   const fetchOptions = useCallback(() => {
     Promise.all([
       fetch(`${API_BASE}/customers?salon_id=${SALON_ID}`).then((r) => r.json()),
-      fetch(`${API_BASE}/services?salon_id=${SALON_ID}`).then((r) => r.json()),
+      fetch(`${API_BASE}/services/online?salon_id=${SALON_ID}`).then((r) => r.json()),
     ]).then(([custData, svcData]) => {
       setCustomers(custData);
       setServices(svcData);
@@ -119,6 +122,29 @@ export default function Appointments() {
       setError(err instanceof Error ? err.message : 'Bir hata oluştu');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleStatusChange = async (appointmentId: number, newStatus: string) => {
+    setUpdatingId(appointmentId);
+    try {
+      const res = await fetch(`${API_BASE}/appointments/${appointmentId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || 'Durum güncellenemedi');
+      }
+
+      fetchAppointments();
+    } catch (err) {
+      console.error(err);
+      alert(err instanceof Error ? err.message : 'Durum güncellenemedi');
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -184,12 +210,13 @@ export default function Appointments() {
                 <th style={thStyle}>Süre</th>
                 <th style={thStyle}>Fiyat</th>
                 <th style={thStyle}>Durum</th>
+                <th style={thStyle}>İşlem</th>
               </tr>
             </thead>
             <tbody>
               {appointments.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#a0aec0', fontSize: '16px' }}>
+                  <td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#a0aec0', fontSize: '16px' }}>
                     Henüz randevu yok. &quot;+ Yeni Randevu&quot; ile ilk randevunuzu oluşturun.
                   </td>
                 </tr>
@@ -211,6 +238,51 @@ export default function Appointments() {
                       {Number(appt.service_price).toLocaleString('tr-TR')} TL
                     </td>
                     <td style={tdStyle}>{getStatusBadge(appt.status)}</td>
+                    <td style={tdStyle}>
+                      <select
+                        value={appt.status}
+                        disabled={updatingId === appt.id}
+                        onChange={(e) => handleStatusChange(appt.id, e.target.value)}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid #e2e8f0',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#4a5568',
+                          backgroundColor: 'white',
+                          cursor: updatingId === appt.id ? 'wait' : 'pointer',
+                          minWidth: '140px',
+                        }}
+                      >
+                        {Object.entries(statusLabels).map(([value, info]) => (
+                          <option key={value} value={value}>
+                            {info.label}
+                          </option>
+                        ))}
+                      </select>
+                      {appt.status !== 'completed' && appt.status !== 'cancelled' && (
+                        <button
+                          type="button"
+                          disabled={updatingId === appt.id}
+                          onClick={() => handleStatusChange(appt.id, 'completed')}
+                          style={{
+                            display: 'block',
+                            marginTop: '8px',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            backgroundColor: '#e52d6e',
+                            color: 'white',
+                            fontSize: '12px',
+                            fontWeight: 'bold',
+                            cursor: updatingId === appt.id ? 'wait' : 'pointer',
+                          }}
+                        >
+                          ✓ İşlem Bitti
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))
               )}
@@ -311,7 +383,7 @@ export default function Appointments() {
   );
 }
 
-const thStyle: React.CSSProperties = {
+const thStyle: CSSProperties = {
   padding: '18px 25px',
   color: '#4a5568',
   fontWeight: '600',
@@ -319,12 +391,12 @@ const thStyle: React.CSSProperties = {
   textTransform: 'uppercase',
 };
 
-const tdStyle: React.CSSProperties = {
+const tdStyle: CSSProperties = {
   padding: '18px 25px',
   fontSize: '16px',
 };
 
-const labelStyle: React.CSSProperties = {
+const labelStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: '6px',
@@ -334,7 +406,7 @@ const labelStyle: React.CSSProperties = {
   color: '#4a5568',
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   padding: '12px 14px',
   borderRadius: '8px',
   border: '1px solid #e2e8f0',
