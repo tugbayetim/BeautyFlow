@@ -29,7 +29,10 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Admin Paneli Giriş Sayfası */}
         <Route path="/login" element={<Login />} />
+
+        {/* Admin Paneli Korumalı Rotaları */}
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/appointments" element={<Appointments />} />

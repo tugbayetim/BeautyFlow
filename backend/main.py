@@ -12,9 +12,11 @@ from psycopg2.extras import RealDictCursor, Json
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+import bcrypt
+from dotenv import load_dotenv
 
 
-
+load_dotenv()
 
 app = FastAPI()
 
@@ -26,7 +28,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(PROFILE_UPLOAD_DIR, exist_ok=True)
 
 # --- GÜVENLİK AYARLARI ---
-SECRET_KEY = "your-very-secret-key-that-is-long-and-secure" # GERÇEK UYGULAMADA BUNU .env DOSYASINA TAŞIYIN
+SECRET_KEY = os.getenv("SECRET_KEY")        
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 gün
 
@@ -168,7 +170,7 @@ app.add_middleware(
 DB_CONFIG = {
     "dbname": "beautyflow_db",
     "user": "postgres",
-    "password": "20924678390", # Burayı kendi şifrenle değiştir!
+    "password": os.getenv("DB_PASSWORD"),
     "host": "localhost",
     "port": "5432"
 }
@@ -232,7 +234,7 @@ class Token(BaseModel):
 class CustomerCreate(BaseModel):
     name: str
     phone: Optional[str] = None
-    salon_id: int
+    
 
 # Service için doğrulama modeli (JSON endpoint uyumluluğu)
 class ServiceCreate(BaseModel):
@@ -282,8 +284,15 @@ class SalonSettingsUpdate(BaseModel):
 
 
 
+class MobileLoginSchema(BaseModel):
+    phone: str
+    password: str
 
-
+class MobileRegisterSchema(BaseModel):
+    name: str
+    phone: str
+    password: str
+    salon_id: int = 1  # Varsayılan olarak 1 atar
 
 
 
@@ -456,16 +465,16 @@ def get_salon_details(salon_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Salon detayları getirilemedi: {str(e)}")
 
-# GET /customers -> Tüm müşterileri listele
 @app.get("/customers")
 def get_customers(salon_id: Optional[int] = None):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
 
+        # Temel sorgu (Sonundaki noktalı virgül kaldırıldı, dinamik ekleme yapılacak)
         query = """
             SELECT 
-                c.id, c.name, c.phone, c.total_spent, c.salon_id, c.created_at,
+                c.id, c.name, c.phone, c.total_spent, c.created_at,
                 la.last_visit_date as last_visit,
                 la.last_service_name,
                 la.last_service_price
@@ -483,8 +492,14 @@ def get_customers(salon_id: Optional[int] = None):
             ) la ON TRUE
         """
 
+        # Şartları güvenli bir şekilde ekliyoruz
         if salon_id:
-            query += " WHERE c.salon_id = %s ORDER BY c.id DESC;"
+            query += """ 
+                WHERE c.id IN (
+                    SELECT DISTINCT customer_id FROM appointments WHERE salon_id = %s
+                )
+            """
+            query += " ORDER BY c.id DESC;"
             cursor.execute(query, (salon_id,))
         else:
             query += " ORDER BY c.id DESC;"
@@ -497,18 +512,21 @@ def get_customers(salon_id: Optional[int] = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Müşteriler getirilemedi: {str(e)}")
 
-# POST /customers -> Yeni müşteri oluştur
+
+# POST /customers -> Yeni genel müşteri oluştur (Mobil Uygulama Kayıt)
 @app.post("/customers")
 def create_customer(customer: CustomerCreate):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        # INSERT kısmından salon_id kaldırıldı
         query = """
-            INSERT INTO customers (name, phone, salon_id) 
-            VALUES (%s, %s, %s) 
-            RETURNING id, name, phone, last_visit, total_spent, salon_id, created_at;
+            INSERT INTO customers (name, phone) 
+            VALUES (%s, %s) 
+            RETURNING id, name, phone, last_visit, total_spent, created_at;
         """
-        cursor.execute(query, (customer.name, customer.phone, customer.salon_id))
+        cursor.execute(query, (customer.name, customer.phone))
         new_customer = cursor.fetchone()
         conn.commit()
         cursor.close()
@@ -517,6 +535,7 @@ def create_customer(customer: CustomerCreate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Müşteri oluşturulamadı: {str(e)}")
     
+
 # PUT /salons/{id} -> Salon ayarlarını güncelle
 @app.put("/salons/{salon_id}")
 def update_salon_settings(salon_id: int, settings: SalonSettingsUpdate):
@@ -752,25 +771,33 @@ def create_appointment(appointment: AppointmentCreate):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        # INSERT sorgusuna ve VALUES parametrelerine salon_id entegre edildi
         query = """
             INSERT INTO appointments (customer_id, service_id, employee_id, start_time, salon_id, status) 
             VALUES (%s, %s, %s, %s, %s, 'pending') 
             RETURNING id, customer_id, service_id, employee_id, start_time, status, salon_id, created_at;
         """
+        
+        # cursor.execute içerisindeki parametre sırası, VALUES (%s, %s, %s, %s, %s) sırasıyla birebir eşleşti
         cursor.execute(query, (
             appointment.customer_id, 
             appointment.service_id, 
             appointment.employee_id, 
             appointment.start_time,
-            appointment.salon_id
+            appointment.salon_id  # Burası eklendi
         ))
+        
         new_appointment = cursor.fetchone()
         conn.commit()
         cursor.close()
         conn.close()
+        
         return {"status": "success", "data": new_appointment}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Randevu oluşturulamadı: {str(e)}")
+    
+
 
 # PATCH /appointments/{appointment_id}/status -> Randevu durumunu güncelle
 @app.patch("/appointments/{appointment_id}/status")
@@ -815,8 +842,92 @@ def update_appointment_status(appointment_id: int, body: AppointmentStatusUpdate
 
 
 
+# Yardımcı Fonksiyonlar: Şifre Hashleme
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 
+@app.post("/mobile/register")
+def mobile_register(data: MobileRegisterSchema):
+    name = data.name
+    phone = data.phone
+    password = data.password
+    salon_id = data.salon_id
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # 1. Kontrol: Bu telefon numarası zaten var mı?
+        cursor.execute("SELECT id FROM customers WHERE phone = %s", (phone,))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Bu telefon numarası zaten kayıtlı.")
+            
+        # 2. Kayıt Sorgusu: Sütun isimlerinin pgAdmin'dekiyle birebir aynı olduğundan emin olalım
+        query = """
+            INSERT INTO customers (name, phone, password_hash, salon_id) 
+            VALUES (%s, %s, %s, %s) RETURNING id
+        """
+        cursor.execute(query, (name, phone, password, salon_id))
+        
+        # Değişiklikleri veritabanına işle
+        conn.commit()
+        
+        return {"status": "success", "message": "Kayıt başarılı"}
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        conn.rollback() # Bir hata olursa veritabanını güvenli kura geri al
+        # Hatayı Swagger ekranında görebilmek için detail kısmına hatayı yazdırıyoruz:
+        raise HTTPException(status_code=500, detail=f"Veritabanı kayıt hatası: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.post("/mobile/login")
+def mobile_login(data: MobileLoginSchema):
+    phone = data.phone
+    password = data.password
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Veritabanından kullanıcıyı çekiyoruz
+        query = "SELECT id, name, phone, password_hash FROM customers WHERE phone = %s"
+        cursor.execute(query, (phone,))
+        customer = cursor.fetchone()
+        
+        # Kullanıcı bulunamadıysa
+        if not customer:
+            raise HTTPException(status_code=400, detail="Telefon numarası veya şifre hatalı.")
+            
+        # KESİN KONTROL NOKTASI: 
+        # Mobilden gelen 'password' ile veritabanındaki 'password_hash' sütununu 
+        # string (metin) olarak doğrudan karşılaştırıyoruz.
+        if str(customer['password_hash']).strip() != str(password).strip():
+            raise HTTPException(status_code=400, detail="Telefon numarası veya şifre hatalı.")
+            
+        # Giriş başarılıysa mobil uygulamaya yönlendirme verisi gönderiyoruz
+        return {
+            "status": "success",
+            "customer": {
+                "id": customer['id'],
+                "name": customer['name'],
+                "phone": customer['phone']
+            }
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sistem hatası: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
 
     
 if __name__ == "__main__":

@@ -25,13 +25,13 @@ CREATE TABLE IF NOT EXISTS salons (
 CREATE TABLE IF NOT EXISTS customers (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    phone VARCHAR(20),
+    phone VARCHAR(20) UNIQUE NOT NULL, -- Telefon hem benzersiz hem zorunlu yapıldı
+    password_hash VARCHAR(255) NOT NULL, -- Güvenli giriş için şifre alanı zorunlu yapıldı
     last_visit DATE,
-    total_spent NUMERIC(10, 2) DEFAULT 0,
-    salon_id INTEGER NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
+    total_spent NUMERIC(10, 2) DEFAULT 0.00,
+    salon_id INTEGER NOT NULL REFERENCES salons(id) ON DELETE CASCADE, -- Hangi salona ait olduğu ilişkisi
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
 -- Services Tablosu
 CREATE TABLE IF NOT EXISTS services (
     id SERIAL PRIMARY KEY,

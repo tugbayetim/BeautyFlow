@@ -119,7 +119,7 @@ export default function Services() {
     setModalOpen(true);
   };
 
-  const openEditModal = (service: Service) => {
+  const openEditModal = (_service: Service) => {
     alert('Hizmet düzenleme özelliği yakında eklenecektir.');
     setModalOpen(true);
   };
