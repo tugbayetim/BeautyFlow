@@ -7,6 +7,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LoginScreen from './src/pages/LoginScreen';
 import RegisterScreen from './src/pages/RegisterScreen';
 import HomeScreen from './src/pages/HomeScreen';
+import SalonDetailScreen from './src/pages/SalonDetailScreen'; // 1. YENİ EKRANIMIZI IMPORT ETTİK
+import ProfileScreen from './src/pages/ProfileScreen';
+
 
 const Stack = createNativeStackNavigator();
 
@@ -22,7 +25,7 @@ export default function App() {
       } catch (e) {
         console.error('AsyncStorage okunurken hata oluştu', e);
       } finally {
-        setIsLoading(false);
+         setIsLoading(false);
       }
     };
 
@@ -37,13 +40,27 @@ export default function App() {
     );
   }
 
-  return (
+ return (
     <NavigationContainer>
       <StatusBar barStyle="dark-content" />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {isLoggedIn ? (
-          <Stack.Screen name="Home" component={HomeScreen} />
+          // Kullanıcı giriş yaptıysa bu gruptaki ekranları görebilir:
+          <Stack.Group>
+            <Stack.Screen name="Home" component={HomeScreen} />
+            <Stack.Screen 
+              name="SalonDetail" 
+              component={SalonDetailScreen} 
+              options={{ headerShown: true, title: 'Salon Detayı' }} 
+            />
+            <Stack.Screen  
+              name="Profile"  
+              component={ProfileScreen} 
+              options={{ headerShown: true, title: 'Profilim' }} 
+            />
+          </Stack.Group>
         ) : (
+          // Kullanıcı giriş yapmadıysa sadece burayı görür:
           <Stack.Screen name="Auth">
             {(props) => (
               <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -54,6 +71,7 @@ export default function App() {
               </Stack.Navigator>
             )}
           </Stack.Screen>
+          
         )}
       </Stack.Navigator>
     </NavigationContainer>

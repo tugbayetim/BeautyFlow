@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 
-const API_URL = 'http://192.168.1.105:8080';
+const API_URL = "http://10.0.2.2:8000";
 
 // BURASI DEĞİŞTİ: setIsLoggedIn parametresini içeriye prop olarak aldık!
 export default function LoginScreen({ navigation, setIsLoggedIn }: { navigation: any, setIsLoggedIn: (value: boolean) => void }) {
