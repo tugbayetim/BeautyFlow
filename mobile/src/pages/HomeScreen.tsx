@@ -1,100 +1,122 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, FlatList, Image } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, FlatList, Image, Linking, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Sahte (Mock) Kuaför Verileri
-const MOCK_SALONS = [
-  {
-    id: '1',
-    name: 'Elegance Bayan Kuaförü',
-    logo: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=150',
-    rating: '4.8',
-    hours: '09:00 - 20:00',
-    address: 'Kanal Mah. Atatürk Cad. No:45',
-  },
-  {
-    id: '2',
-    name: 'Glow Beauty & Salon',
-    logo: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=150',
-    rating: '4.9',
-    hours: '10:00 - 22:00',
-    address: 'Fener Mah. Bülent Ecevit Bulv. No:12',
-  },
-  {
-    id: '3',
-    name: 'Asil Erkek Kuaförü',
-    logo: 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=150',
-    rating: '4.6',
-    hours: '08:30 - 21:00',
-    address: 'Liman Mah. Gençlik Cad. No:8',
-  },
-];
+import axios from 'axios'; 
 
 export default function HomeScreen({ navigation }: any) {
   const [userInitial, setUserInitial] = useState('U');
+  const [salons, setSalons] = useState<any[]>([]); 
+  const [loading, setLoading] = useState<boolean>(true); // Yükleme durumu için eklendi
 
-  // Giriş yapan kullanıcının e-postasının baş harfini alıp avatara yazıyoruz
+  // 1. Kullanıcı Bilgisini Çekme
   useEffect(() => {
     const getUser = async () => {
       const userRaw = await AsyncStorage.getItem('user');
       if (userRaw) {
         const user = JSON.parse(userRaw);
-        if (user?.email) {
-          setUserInitial(user.email.charAt(0).toUpperCase());
+        if (user?.name) {
+          setUserInitial(user.name.charAt(0).toUpperCase());
         }
       }
     };
     getUser();
   }, []);
 
-  // Her bir kuaför kartının tasarımı
-  const renderSalonCard = ({ item }: { item: typeof MOCK_SALONS[0] }) => (
+// 2. BACKEND'DEN GERÇEK SALONLARI ÇEKME
+  useEffect(() => {
+    const fetchSalons = async () => {
+      try {
+        setLoading(true);
+        
+        // Axios yerine yerleşik fetch kullanarak yerel ağ engelini aşıyoruz
+        const response = await fetch('http://192.168.1.104:8080/salons');
+        
+        if (!response.ok) {
+          throw new Error(`Sunucu hatası: ${response.status}`);
+        }
+        
+        const responseData = await response.json();
+        console.log("Gelen Salon Verisi:", responseData);
+        
+        if (Array.isArray(responseData)) {
+          setSalons(responseData);
+        } else if (responseData && Array.isArray(responseData.data)) {
+          setSalons(responseData.data);
+        } else {
+          setSalons([]);
+        }
+      } catch (error) {
+        console.error("Salonlar backendden çekilemedi:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSalons();
+  }, []);
+
+  const openMap = (address: string) => {
+    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+    Linking.openURL(url).catch((err) => console.error("Harita açılamadı:", err));
+  };
+
+  const renderSalonCard = ({ item }: { item: any }) => (
     <TouchableOpacity 
       style={styles.card}
-      onPress={() => navigation.navigate('SalonDetail', { salon: item })}
+      onPress={() => navigation.navigate('SalonDetail', { salon: item })} 
     >
-      {/* Sol Kısım: Kuaför Amblemi */}
-      <Image source={{ uri: item.logo }} style={styles.logo} />
+      <Image 
+        source={{ uri: item.logo_url || 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=150' }} 
+        style={styles.logo} 
+      />
 
-      {/* Sağ Kısım: Kuaför Bilgileri */}
       <View style={styles.infoContainer}>
         <View style={styles.headerRow}>
-          <Text style={styles.salonName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.rating}>⭐ {item.rating}</Text>
+          <Text style={styles.salonName} numberOfLines={1}>{item.name || "İsimsiz Salon"}</Text>
+          <Text style={styles.rating}>⭐ {item.rating || '5.0'}</Text>
         </View>
         
-        <Text style={styles.hours}>🕒 {item.hours}</Text>
-        <Text style={styles.address} numberOfLines={1}>📍 {item.address}</Text>
+        {/* PostgreSQL JSONB alanından veriyi güvenli okumak için güncellendi */}
+        <Text style={styles.hours}>🕒 {item.working_hours?.general || item.hours || '09:00 - 20:00'}</Text>
+        
+        {item.address && (
+          <TouchableOpacity 
+            onPress={() => openMap(item.address)}
+            activeOpacity={0.7}
+            style={styles.addressTouchable}
+          >
+            <Text style={styles.address} numberOfLines={1}>📍 {item.address}</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </TouchableOpacity>
   );
 
   return (
     <View style={styles.container}>
-      {/* ÜST BAŞLIK ALANI (Yenilenen Kısım) */}
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>BeautyFlow</Text>
           <Text style={styles.subtitle}>En iyi salonları keşfet</Text>
         </View>
-        
-        {/* Yuvarlak Tıklanabilir Profil Avatarı */}
-        <TouchableOpacity 
-          style={styles.profileAvatar} 
-          onPress={() => navigation.navigate('Profile')}
-        >
+        <TouchableOpacity style={styles.profileAvatar} onPress={() => navigation.navigate('Profile')}>
           <Text style={styles.avatarText}>{userInitial}</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Kuaförler Listesi */}
-      <FlatList
-        data={MOCK_SALONS}
-        keyExtractor={(item) => item.id}
-        renderItem={renderSalonCard}
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
-      />
+      {loading ? (
+        <ActivityIndicator size="large" color="#e52d6e" style={{ flex: 1, justifyContent: 'center' }} />
+      ) : (
+        <FlatList
+          data={salons} 
+          keyExtractor={(item, index) => (item?.id ? item.id.toString() : index.toString())}
+          renderItem={renderSalonCard}
+          contentContainerStyle={styles.listContainer}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <Text style={{ textAlign: 'center', marginTop: 40, color: '#6c757d' }}>Aktif salon bulunamadı.</Text>
+          }
+        />
+      )}
     </View>
   );
 }
@@ -106,11 +128,13 @@ const styles = StyleSheet.create({
     paddingTop: 50,
   },
   header: {
+    flex: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
     marginBottom: 20,
+    maxHeight: 60,
   },
   title: {
     fontSize: 28,
@@ -121,7 +145,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6c757d',
   },
-  // Yeni Eklenen Profil Avatarı Stili
   profileAvatar: {
     width: 44,
     height: 44,
@@ -133,7 +156,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,
     shadowRadius: 5,
-    elevation: 4, // Android gölge
+    elevation: 4,
   },
   avatarText: {
     color: '#fff',
@@ -191,8 +214,13 @@ const styles = StyleSheet.create({
     color: '#495057',
     marginBottom: 2,
   },
+  addressTouchable: {
+    marginTop: 2,
+    paddingVertical: 2,
+  },
   address: {
     fontSize: 12,
-    color: '#868e96',
+    color: '#e52d6e', 
+    textDecorationLine: 'underline', 
   },
 });

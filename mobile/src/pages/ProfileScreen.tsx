@@ -132,8 +132,8 @@ export default function ProfileScreen({ navigation }: any) {
           <Text style={styles.changePhotoText}>Fotoğrafı Değiştir</Text>
         </TouchableOpacity>
 
-        <Text style={styles.userEmail}>{userData?.email || 'Kullanıcı Yükleniyor...'}</Text>
-        <Text style={styles.userRole}>Müşteri Profili</Text>
+        <Text style={styles.userEmail}>{userData?.name || 'Kullanıcı Yükleniyor...'}</Text>
+        <Text style={styles.userRole}>{userData?.phone || 'Müşteri Profili'}</Text>
       </View>
 
       {/* ÖZET İSTATİSTİK KARTLARI */}

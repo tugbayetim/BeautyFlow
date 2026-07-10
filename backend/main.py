@@ -16,6 +16,7 @@ import bcrypt
 from dotenv import load_dotenv
 
 
+
 load_dotenv()
 
 app = FastAPI()
@@ -203,9 +204,25 @@ class SalonCreate(BaseModel):
     name: str
     slug: str
     phone: str
+    address: Optional[str] = None  # 📍 YENİ: Salon ilk kez oluşturulurken adres girilebilsin diye eklendi
     owner_name: str
     owner_email: str
     owner_password: str
+
+
+class SalonResponse(BaseModel):
+    id: int
+    name: str
+    slug: str
+    phone: Optional[str] = None
+    address: Optional[str] = None  # 📍 YENİ: React Native'e veritabanındaki adresin gitmesini sağlar
+    logo_url: Optional[str] = None
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 
 # User için doğrulama modeli
 class UserCreate(BaseModel):
@@ -411,27 +428,26 @@ def create_salon(salon: SalonCreate):
     try:
         with conn:
             with conn.cursor() as cursor:
-                # 1. Salonu oluştur ve ID'sini al
+                # 1. Salonu oluştur ve ID'sini al (Sema güncellememize paralel olarak address alanı eklendi)
                 salon_query = """
-                    INSERT INTO salons (name, slug, phone) 
-                    VALUES (%s, %s, %s) 
-                    RETURNING id, name, slug, phone, created_at;
+                    INSERT INTO salons (name, slug, phone, address) 
+                    VALUES (%s, %s, %s, %s) 
+                    RETURNING id, name, slug, phone, address, created_at;
                 """
-                cursor.execute(salon_query, (salon.name, salon.slug, salon.phone))
+                cursor.execute(salon_query, (salon.name, salon.slug, salon.phone, salon.address))
                 new_salon = cursor.fetchone()
                 
                 # 2. Salon sahibini (kullanıcıyı) oluştur
                 hashed_password = get_password_hash(salon.owner_password)
                 user_query = """
                     INSERT INTO users (name, email, hashed_password, salon_id, role) 
-                    VALUES (%s, %s, %s, %s, 'admin')
+                    VALUES (%s, %s, %s, %s, 'yönetici')
                 """
                 cursor.execute(user_query, (salon.owner_name, salon.owner_email, hashed_password, new_salon['id']))
 
         return {"status": "success", "data": new_salon}
         
     except psycopg2.errors.UniqueViolation as e:
-        # Eğer aynı slug veya email ile tekrar kayıt açılmaya çalışılırsa hata fırlatır
         if 'users_email_key' in str(e):
             raise HTTPException(status_code=400, detail="Bu e-posta adresi zaten kullanımda!")
         if 'salons_slug_key' in str(e):
@@ -442,6 +458,26 @@ def create_salon(salon: SalonCreate):
     finally:
         if conn:
             conn.close()
+
+# GET /salons -> Tüm salonları listele (React Native HomeScreen için eklendi)
+@app.get("/salons")
+def get_salons():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Adres, logo ve çalışma saatleri gibi mobil ön yüzde ihtiyaç duyulan tüm kolonları çekiyoruz
+        query = """
+            SELECT id, name, slug, phone, address, logo_url, working_hours, description 
+            FROM salons 
+            ORDER BY id DESC;
+        """
+        cursor.execute(query)
+        salons = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return salons
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Salonlar listesi getirilemedi: {str(e)}")
     
 # GET /salons/{id} -> Belirli bir salonun tüm detaylarını getir
 @app.get("/salons/{salon_id}")
@@ -471,7 +507,6 @@ def get_customers(salon_id: Optional[int] = None):
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Temel sorgu (Sonundaki noktalı virgül kaldırıldı, dinamik ekleme yapılacak)
         query = """
             SELECT 
                 c.id, c.name, c.phone, c.total_spent, c.created_at,
@@ -492,7 +527,6 @@ def get_customers(salon_id: Optional[int] = None):
             ) la ON TRUE
         """
 
-        # Şartları güvenli bir şekilde ekliyoruz
         if salon_id:
             query += """ 
                 WHERE c.id IN (
@@ -520,7 +554,6 @@ def create_customer(customer: CustomerCreate):
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # INSERT kısmından salon_id kaldırıldı
         query = """
             INSERT INTO customers (name, phone) 
             VALUES (%s, %s) 
@@ -536,21 +569,21 @@ def create_customer(customer: CustomerCreate):
         raise HTTPException(status_code=500, detail=f"Müşteri oluşturulamadı: {str(e)}")
     
 
-# PUT /salons/{id} -> Salon ayarlarını güncelle
 @app.put("/salons/{salon_id}")
 def update_salon_settings(salon_id: int, settings: SalonSettingsUpdate):
+    conn = None
+    cursor = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        # React Native tarafına nesne dönebilmesi için RealDictCursor kullanıyoruz
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-        # Pydantic modelinden gelen ve None olmayan alanları alarak dinamik bir SET ifadesi oluştur
         update_fields = settings.dict(exclude_unset=True)
         if not update_fields:
             raise HTTPException(status_code=400, detail="Güncellenecek veri bulunamadı.")
 
         set_clause = ", ".join([f"{key} = %s" for key in update_fields.keys()])
         
-        # JSONB alanları için psycopg2.extras.Json kullan
         params = []
         for key, value in update_fields.items():
             if isinstance(value, dict):
@@ -568,24 +601,31 @@ def update_salon_settings(salon_id: int, settings: SalonSettingsUpdate):
             raise HTTPException(status_code=404, detail="Salon bulunamadı.")
 
         conn.commit()
-        cursor.close()
-        conn.close()
         return {"status": "success", "data": updated_salon}
+    except HTTPException:
+        raise
     except Exception as e:
+        if conn:
+            conn.rollback()
         raise HTTPException(status_code=500, detail=f"Salon ayarları güncellenemedi: {str(e)}")
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
-
-   # GET /service-categories -> Hizmet kategorileri
+# GET /service-categories -> Hizmet kategorileri
 @app.get("/service-categories")
 def get_service_categories():
     return SERVICE_CATEGORIES
 
-   # GET /services -> Tüm hizmetleri listele
+# GET /services -> Tüm hizmetleri listele
 @app.get("/services")
 def get_services(salon_id: Optional[int] = None):
+    conn = None
+    cursor = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        # Frontend'deki .name, .price okumalarının çalışması için RealDictCursor ile sözlük yapısına çeviriyoruz
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         if salon_id:
             cursor.execute("SELECT * FROM services WHERE salon_id = %s ORDER BY id DESC;", (salon_id,))
@@ -593,11 +633,12 @@ def get_services(salon_id: Optional[int] = None):
             cursor.execute("SELECT * FROM services ORDER BY id DESC;")
             
         services = cursor.fetchall()
-        cursor.close()
-        conn.close()
         return services
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Hizmetler getirilemedi: {str(e)}")
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 # POST /services -> Yeni hizmet oluştur (multipart + görsel yükleme)
 @app.post("/services")
@@ -614,6 +655,8 @@ async def create_service(
     is_active: str = Form("true"),
     gallery: Optional[List[UploadFile]] = File(None),
 ):
+    conn = None
+    cursor = None
     try:
         image_url = await save_upload(image)
         gallery_urls = []
@@ -623,7 +666,7 @@ async def create_service(
                     gallery_urls.append(await save_upload(gfile))
 
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(cursor_factory=RealDictCursor) # Yeni eklenen kayıt nesne dönsün
         query = """
             INSERT INTO services (
                 name, category, duration_minutes, price, discounted_price,
@@ -648,20 +691,25 @@ async def create_service(
         ))
         new_service = cursor.fetchone()
         conn.commit()
-        cursor.close()
-        conn.close()
         return {"status": "success", "data": new_service}
     except HTTPException:
         raise
     except Exception as e:
+        if conn:
+            conn.rollback()
         raise HTTPException(status_code=500, detail=f"Hizmet oluşturulamadı: {str(e)}")
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 # GET /services/online -> Sadece online rezervasyona açık hizmetleri getir
 @app.get("/services/online")
 def get_online_services(salon_id: Optional[int] = None):
+    conn = None
+    cursor = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(cursor_factory=RealDictCursor) # Tuple yerine dict formatı
         
         query = "SELECT * FROM services WHERE online_booking_enabled = TRUE AND is_active = TRUE"
         
@@ -673,11 +721,12 @@ def get_online_services(salon_id: Optional[int] = None):
             cursor.execute(query)
             
         services = cursor.fetchall()
-        cursor.close()
-        conn.close()
         return services
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Online hizmetler getirilemedi: {str(e)}")
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 # PATCH /services/{service_id}/status -> Hizmet durumunu güncelle
 @app.patch("/services/{service_id}/status")
@@ -685,9 +734,11 @@ def update_service_status(service_id: int, body: ServiceStatusUpdate):
     if body.is_active is None and body.online_booking_enabled is None:
         raise HTTPException(status_code=400, detail="Güncellenecek bir durum belirtilmedi.")
 
+    conn = None
+    cursor = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(cursor_factory=RealDictCursor) # Güncellenen veri dict formatında dönsün
 
         updates = []
         params = []
@@ -708,30 +759,39 @@ def update_service_status(service_id: int, body: ServiceStatusUpdate):
             raise HTTPException(status_code=404, detail="Hizmet bulunamadı")
 
         conn.commit()
-        cursor.close()
-        conn.close()
         return {"status": "success", "data": updated}
     except HTTPException:
         raise
     except Exception as e:
+        if conn:
+            conn.rollback()
         raise HTTPException(status_code=500, detail=f"Hizmet durumu güncellenemedi: {str(e)}")
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
 
 # DELETE /services/{service_id} -> Hizmeti sil
 @app.delete("/services/{service_id}")
 def delete_service(service_id: int):
+    conn = None
+    cursor = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("DELETE FROM services WHERE id = %s RETURNING id;", (service_id,))
         deleted = cursor.fetchone()
         if not deleted:
             raise HTTPException(status_code=404, detail="Hizmet bulunamadı")
         conn.commit()
-        cursor.close()
-        conn.close()
         return {"status": "success", "message": "Hizmet başarıyla silindi."}
     except Exception as e:
+        if conn:
+            conn.rollback()
         raise HTTPException(status_code=500, detail=f"Hizmet silinemedi: {str(e)}")
+    finally:
+        if cursor: cursor.close()
+        if conn: conn.close()
+
 
  # GET /appointments -> Tüm randevuları (Müşteri ve Hizmet detaylarıyla birlikte) getir
 @app.get("/appointments")
